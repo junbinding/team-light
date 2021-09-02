@@ -1,0 +1,55 @@
+stages:
+  - test
+  - deploy
+
+cache:
+  key: ${CI_BUILD_REF_NAME}
+  paths:
+    - node_modules/
+
+before_script:
+  - export PATH=/usr/local/bin:$PATH
+  - npm set registry https://registry.npm.taobao.org
+
+# 测试分支集成
+dev-merge:
+  stage: test
+  tags: 
+    - fe
+  only: 
+    refs:
+      - dev
+    changes:
+      - app/**/*
+      - test/**/*
+  script:
+    - npm i
+    - npm run lint
+    - npm run test
+
+# 主分支发布
+main-deploy:
+  stage: deploy
+  tags:
+    - fe   # 这个是runner的tags内容
+  only: 
+    - main
+  before_script:
+    - export PATH=/usr/local/bin:$PATH
+    - 'which ssh-agent || ( apk add --no-cache openssh-client )'
+    - eval $(ssh-agent -s)
+    - echo "$SSH_PRIVATE_KEY" | ssh-add -
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - chmod 644 ~/.ssh/known_hosts
+    - '[[ -f /.dockerenv ]] && echo -e "Host *\\n\\tStrictHostKeyChecking no\\n\\n" > ~/.ssh/config'
+  script:
+    - scp -r ./ root@1.117.60.39:/root/base/nginx/html/tuya  # 将打包好的dist拷贝到部署目
+    - |
+      ssh root@1.117.60.39 "
+        cd /root/base/nginx/html/tuya;
+        docker-compose up -d;
+        npm i --registry https://registry.npm.taobao.org;
+        npm stop && npm start
+      "
